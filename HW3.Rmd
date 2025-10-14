@@ -1,0 +1,15 @@
+---
+title: "HW3"
+author: "wd2311"
+date: "2025-10-14"
+output: github_document
+---
+
+```{r}
+knitr::opts_chunk$set(
+  fig.width = 6,
+  fig.asp = .6,
+  out.width = "90%"
+)
+```
+
