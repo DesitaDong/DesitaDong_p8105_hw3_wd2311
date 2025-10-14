@@ -11,6 +11,8 @@ library(janitor)
 library(p8105.datasets)
 library(knitr)
 library(forcats)
+library(patchwork)
+library(gt)
 ```
 
 
@@ -38,7 +40,7 @@ n_aisles <- instacart |>
 c(n_obs, n_vars, n_aisles)
 ```
 
-## description on aisles
+## Description on aisles
 There are 134 aisles. The aisles with the greatest number of items ordered are 
 “fresh vegetables” (150,609 orders) and “fresh fruits” (150,473 orders).
 ```{r}
@@ -97,17 +99,163 @@ kable(mean_hour_tbl, col.names = c("Product","Sun","Mon","Tue","Wed","Thu","Fri"
 ```
 
 
-
-
-
-
+# Problem 2
+## Data Set-up
 ```{r}
-library(tidyverse)
+zip_meta <- read_csv("data/Zip Codes.csv") |> 
+  clean_names() 
 
-knitr::opts_chunk$set(
-  fig.width = 6,
-  fig.asp = .6,
-  out.width = "90%"
-)
+zori_raw <- read_csv("data/Zip_zori_uc_sfrcondomfr_sm_month_NYC.csv", show_col_types = FALSE) |> 
+  clean_names() 
+
+# Check column names
+names(zip_meta)
+names(zori_raw)
 ```
 
+## Data preparation 
+```{r}
+zip_meta <- zip_meta |>
+  mutate(
+    zip = str_pad(as.character(zip_code), 5, pad = "0"),
+    county = str_to_title(county) |> str_trim()
+  )
+
+county_to_borough <- c(
+  "Bronx"          = "Bronx",
+  "Kings"          = "Brooklyn",
+  "New York"       = "Manhattan",
+  "Queens"         = "Queens",
+  "Richmond"       = "Staten Island"
+)
+
+zip_meta <- zip_meta |>
+  mutate(borough = recode(county, !!!county_to_borough)) |>
+  filter(!is.na(borough)) |>
+  select(zip, borough, county, neighborhood)
+```
+
+## Turning to long form
+```{r}
+zori_long <- zori_raw |>
+  mutate(
+    zip = str_pad(as.character(region_name), 5, pad = "0")
+  ) |>
+  pivot_longer(
+    cols = matches("^x\\d{4}_\\d{2}_\\d{2}$"),
+    names_to = "date_raw",
+    values_to = "zori"
+  ) |>
+  mutate(
+    date = ymd(str_replace_all(str_remove(date_raw, "^x"), "_", "-")),
+    year = year(date),
+    month = month(date)
+  ) |>
+  filter(!is.na(date))
+
+nyc <- zori_long |>
+  left_join(zip_meta |> select(zip, borough), by = "zip") |>
+  filter(!is.na(borough))
+```
+
+## Monthly Observation
+```{r}
+nyc_target <- nyc |>
+  filter(date >= ymd("2015-01-01"), date <= ymd("2024-08-31"))
+
+months_per_zip <- nyc_target |>
+  count(zip, name = "n_months")
+
+n_116  <- months_per_zip |> filter(n_months == 116) |> nrow()
+n_lt10 <- months_per_zip |> filter(n_months < 10)   |> nrow()
+
+cat("ZIP codes observed exactly 116 times:", n_116, "\n")
+cat("ZIP codes observed fewer than 10 times:", n_lt10, "\n")
+
+```
+
+## Table on Borough × Year 
+```{r}
+dir.create("results", showWarnings = FALSE)
+
+borough_year_tbl <- nyc_target |>
+  dplyr::group_by(borough, year) |>
+  dplyr::summarize(avg_rent = mean(zori, na.rm = TRUE), .groups = "drop") |>
+  dplyr::arrange(borough, year)
+
+borough_year_wide <- borough_year_tbl |>
+  tidyr::pivot_wider(names_from = year, values_from = avg_rent) |>
+  dplyr::mutate(dplyr::across(-borough, ~ round(.x, 0))) # 四舍五入到整数美元
+
+knitr::kable(
+  borough_year_wide |>
+    dplyr::mutate(dplyr::across(-borough, ~ scales::dollar(.x))),
+  caption = "Average Rental Price by Borough and Year (ZORI)"
+)
+
+```
+
+
+## Plot for all available years
+```{r}
+all_years_plot <- nyc_target |>
+  dplyr::group_by(borough, date) |>
+  dplyr::mutate(borough_median = median(zori, na.rm = TRUE)) |>
+  dplyr::ungroup() |>
+  ggplot2::ggplot(ggplot2::aes(x = date, y = zori, group = zip)) +
+  ggplot2::geom_line(alpha = 0.08) +
+  ggplot2::stat_summary(
+    ggplot2::aes(group = borough),
+    fun = median, geom = "line", linewidth = 1.1
+  ) +
+  ggplot2::facet_wrap(~ borough, ncol = 2, scales = "free_y") +
+  ggplot2::scale_y_continuous(labels = scales::dollar) +
+  ggplot2::labs(
+    title = "NYC Rental Prices within ZIP Codes (All Years)",
+    subtitle = "Thin lines: ZIP series · Thick line: Borough median ZORI",
+    x = NULL, y = "ZORI ($)"
+  ) +
+  ggplot2::theme_minimal(base_size = 12) +
+  ggplot2::theme(panel.grid.major.x = ggplot2::element_blank())
+
+ggplot2::ggsave("results/plot_all_years_by_borough.png", all_years_plot,
+                width = 11, height = 7, dpi = 300)
+all_years_plot
+```
+
+## Average rental price in 2023
+```{r}
+zip_2023 <- nyc |>
+  dplyr::filter(lubridate::year(date) == 2023) |>
+  dplyr::group_by(zip, borough) |>
+  dplyr::summarize(avg_2023 = mean(zori, na.rm = TRUE), .groups = "drop")
+
+dist_2023_plot <- ggplot2::ggplot(zip_2023, ggplot2::aes(x = borough, y = avg_2023)) +
+  ggplot2::geom_violin(trim = TRUE, alpha = 0.5) +
+  ggplot2::geom_boxplot(width = 0.15, outlier.alpha = 0.3) +
+  ggplot2::stat_summary(fun = median, geom = "point", size = 2) +
+  ggplot2::scale_y_continuous(labels = scales::dollar) +
+  ggplot2::labs(
+    title = "Distribution of ZIP-level Average Rental Prices (2023)",
+    subtitle = "Violin = distribution · Box = IQR · Dot = median",
+    x = "Borough", y = "Average ZORI in 2023 ($)"
+  ) +
+  ggplot2::theme_minimal(base_size = 12)
+
+ggplot2::ggsave("results/plot_2023_distribution.png", dist_2023_plot,
+                width = 9, height = 6, dpi = 300)
+dist_2023_plot
+```
+## Combine graph
+```{r}
+combined <- all_years_plot / dist_2023_plot +
+  patchwork::plot_annotation(
+    title = "NYC Rental Prices: Long-run Trends and 2023 Distributions"
+  )
+
+ggplot2::ggsave("results/combined_plots.png", combined, width = 11, height = 12, dpi = 300)
+combined
+```
+
+
+# Problem 3
