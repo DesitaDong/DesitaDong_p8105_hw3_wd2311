@@ -12,7 +12,6 @@ library(p8105.datasets)
 library(knitr)
 library(forcats)
 library(patchwork)
-library(gt)
 ```
 
 
@@ -259,3 +258,101 @@ combined
 
 
 # Problem 3
+
+## Set-up data
+```{r}
+covar_path <- "data/nhanes_covar.csv"
+accel_path <- "data/nhanes_accel.csv"
+
+covar <- read_csv(covar_path) |> clean_names()
+accel <- read_csv(accel_path) |> clean_names()
+```
+
+## Data preparation
+```{r}
+covar <- covar |> mutate(participant_id = row_number())
+accel <- accel |> mutate(participant_id = row_number())
+
+mims_cols <- names(accel) |> keep(~ str_detect(.x, "mims"))
+accel <- accel |> mutate(across(all_of(mims_cols), as.numeric))
+
+covar <- covar |>
+  mutate(
+    sex = case_when(
+      x1 %in% c(1, "1") ~ "Male",
+      x1 %in% c(2, "2") ~ "Female",
+      TRUE ~ as.character(x1)
+    ),
+    age = as.numeric(x3),
+    education = case_when(
+      x4 %in% c(1, "1") ~ "Less than HS",
+      x4 %in% c(2, "2") ~ "Some HS",
+      x4 %in% c(3, "3") ~ "HS or GED",
+      x4 %in% c(4, "4") ~ "Some college/AA",
+      x4 %in% c(5, "5") ~ "College or more",
+      TRUE ~ as.character(x4)
+    ),
+    sex = factor(sex, levels = c("Male","Female")),
+    education = fct_relevel(
+      factor(education),
+      "Less than HS","Some HS","HS or GED","Some college/AA","College or more"
+    )
+  )
+
+covar_keep <- covar |> filter(!is.na(age), age >= 21, !is.na(sex), !is.na(education))
+merged <- covar_keep |> inner_join(accel, by = "participant_id")
+```
+
+## Table: number of men and women in each education category
+```{r}
+counts_tbl <- merged |>
+  count(education, sex, name = "n") |>
+  arrange(education, sex)
+kable(counts_tbl, caption = "Number of Men and Women by Education")
+```
+
+## Plot on age distributions
+```{r}
+ggplot(merged, aes(x = age, fill = sex)) +
+  geom_histogram(binwidth = 5, alpha = 0.6, position = "identity") +
+  facet_wrap(~ education, ncol = 3, scales = "free_y") +
+  labs(title = "Age distributions by sex within education levels",
+       x = "Age (years)", y = "Count", fill = "Sex")
+```
+
+## total activity vs age
+```{r}
+merged <- merged |> mutate(total_activity = rowSums(across(all_of(mims_cols)), na.rm = TRUE))
+
+ggplot(merged, aes(x = age, y = total_activity, color = sex)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(se = FALSE, method = "loess") +
+  facet_wrap(~ education, ncol = 3, scales = "free_y") +
+  labs(title = "Total daily activity vs age by education",
+       x = "Age (years)", y = "Total activity (sum of 24h MIMS)",
+       color = "Sex")
+```
+
+
+
+## 24-hour activity time course
+```{r}
+tidy_long <- merged |>
+  select(participant_id, sex, age, education, all_of(mims_cols)) |>
+  pivot_longer(all_of(mims_cols), names_to = "minute_var", values_to = "mims") |>
+  mutate(minute = readr::parse_number(minute_var))
+
+minute_curves <- tidy_long |>
+  group_by(education, sex, minute) |>
+  summarize(mean_mims = mean(mims, na.rm = TRUE), .groups = "drop")
+
+ggplot(minute_curves, aes(x = minute, y = mean_mims, color = sex)) +
+  geom_line() +
+  facet_wrap(~ education, nrow = 1, scales = "free_y") +
+  labs(title = "24-hour activity time courses by education",
+       x = "Minute of day (0–1440)", y = "Mean MIMS", color = "Sex")
+```
+
+
+
+
