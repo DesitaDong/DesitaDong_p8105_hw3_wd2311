@@ -4,8 +4,106 @@ author: "wd2311"
 date: "2025-10-14"
 output: github_document
 ---
+# Loading libraries
+```{r}
+library(tidyverse)
+library(janitor)
+library(p8105.datasets)
+library(knitr)
+library(forcats)
+```
+
+
+# Problem 1
+## Set up and brief description
+The instacart dataset contains 1,384,617 observations and 15 variables, each 
+representing a single product added to a user’s grocery order on the Instacart 
+online shopping platform. Each row corresponds to one product within one order, 
+identified by variables such as:
+order_id (unique order identifier),
+product_id and product_name (the specific item purchased),
+add_to_cart_order (the position in which the item was added),
+reordered (whether the product had been purchased before by the same user),
+order_dow and order_hour_of_day (day of week and time the order was placed),
+aisle and department (product category classification).
+```{r}
+data("instacart") 
+glimpse(instacart)
+n_obs  <- nrow(instacart)
+n_vars <- ncol(instacart)
+n_aisles <- instacart |> 
+  distinct(aisle_id, aisle) |> 
+  nrow()
+
+c(n_obs, n_vars, n_aisles)
+```
+
+## description on aisles
+There are 134 aisles. The aisles with the greatest number of items ordered are 
+“fresh vegetables” (150,609 orders) and “fresh fruits” (150,473 orders).
+```{r}
+aisle_counts <- instacart |>
+  count(aisle, sort = TRUE)
+
+n_aisles <- nrow(aisle_counts)
+n_aisles
+
+# top aisles
+aisle_counts |> slice_head(n = 10) |> kable()
+```
+## Plot on aisles with more than 10000 items
+```{r}
+aisle_counts |>
+  filter(n > 10000) |>
+  mutate(aisle = fct_reorder(aisle, n)) |>
+  ggplot(aes(x = n, y = aisle)) +
+  geom_col() +
+  labs(
+    x = "Number of items ordered",
+    y = NULL,
+    title = "Items ordered by aisle (aisles with > 10,000 items)"
+  ) +
+  theme_minimal(base_size = 12)
+```
+
+## Table for top3 items by aisle
+```{r}
+top3_by_aisle <- instacart |>
+  filter(aisle %in% c("baking ingredients", "dog food care", "packaged vegetables fruits")) |>
+  count(aisle, product_name, sort = TRUE) |>
+  group_by(aisle) |>
+  slice_max(n, n = 3, with_ties = FALSE) |>
+  arrange(aisle, desc(n)) |>
+  ungroup()
+
+kable(top3_by_aisle, col.names = c("Aisle", "Product", "Times ordered"))
+```
+
+## Table for mean hours of the day
+```{r}
+dow_labs <- c("Sun","Mon","Tue","Wed","Thu","Fri","Sat")
+
+mean_hour_tbl <- instacart |>
+  filter(product_name %in% c("Pink Lady Apples", "Coffee Ice Cream")) |>
+  mutate(dow = factor(order_dow, levels = 0:6, labels = dow_labs)) |>
+  group_by(product_name, dow) |>
+  summarise(mean_hour = mean(order_hour_of_day), .groups = "drop") |>
+  mutate(mean_hour = round(mean_hour, 2)) |>
+  pivot_wider(names_from = dow, values_from = mean_hour) |>
+  arrange(product_name)
+
+kable(mean_hour_tbl, col.names = c("Product","Sun","Mon","Tue","Wed","Thu","Fri","Sat"))
+
+```
+
+
+
+
+
 
 ```{r}
+library(tidyverse)
+
 knitr::opts_chunk$set(
   fig.width = 6,
   fig.asp = .6,
