@@ -28,17 +28,20 @@ add_to_cart_order (the position in which the item was added),
 reordered (whether the product had been purchased before by the same user),
 order_dow and order_hour_of_day (day of week and time the order was placed),
 aisle and department (product category classification).
+
 ```{r}
 data("instacart") 
-glimpse(instacart)
-n_obs  = nrow(instacart)
-n_vars = ncol(instacart)
-n_aisles = instacart |> 
-  distinct(aisle_id, aisle) |> 
-  nrow()
 
-c(n_obs, n_vars, n_aisles)
+instacart |>
+  summarize(
+    n_obs = n(),
+    n_vars = ncol(across()),
+    var_names = paste(names(across()), collapse = ", ")
+  )
+
+glimpse(instacart)
 ```
+
 
 ## Description on aisles
 There are 134 aisles. The aisles with the greatest number of items ordered are 
@@ -147,6 +150,14 @@ zip_meta =
 
 ## Turning to long form
 ```{r}
+zip_lookup =
+  zip_meta |>
+  filter(!is.na(zip), !is.na(borough)) |>
+  distinct(zip, borough) |>
+  group_by(zip) |>
+  slice(1) |>          
+  ungroup()
+
 zori_long = 
   zori_raw |>
   mutate(
@@ -158,19 +169,23 @@ zori_long =
     values_to = "zori"
   ) |>
   mutate(
-    date = ymd(str_replace_all(str_remove(date_raw, "^x"), "_", "-")),
-    year = year(date),
+    date  = ymd(str_replace_all(str_remove(date_raw, "^x"), "_", "-")),
+    year  = year(date),
     month = month(date)
   ) |>
   filter(!is.na(date))
 
 nyc = 
   zori_long |>
-  left_join(zip_meta |> select(zip, borough), by = "zip") |>
+  left_join(zip_lookup, by = "zip") |>
   filter(!is.na(borough))
 ```
 
+
+
 ## Monthly Observation
+ZIP codes observed exactly 116 times: 149 
+ZIP codes observed fewer than 10 times: 0 
 ```{r}
 nyc_target = 
   nyc |>
@@ -193,6 +208,8 @@ cat("ZIP codes observed fewer than 10 times:", n_lt10, "\n")
 ```
 
 ## Table on Borough × Year 
+Average rents rise from 2015 to 2024 with a brief drop in 2020/2021.
+Manhattan demonstrates the most expensive rents and Bronx the lowest.
 ```{r}
 dir.create("results", showWarnings = FALSE)
 
@@ -218,6 +235,9 @@ kable(
 
 
 ## Plot for all available years
+Rents generally rise from 2015 to 2024, with a little drop in the year of 2021.
+Manhattan is consistently the highest with most smooth curve, demonstrate low 
+short-time variation.
 ```{r}
 nyc_clean = 
   nyc_target |>
@@ -251,6 +271,10 @@ all_years_plot
 ```
 
 ## Average rental price in 2023
+In 2023, ZIP-level average rents are highest in Manhattan followed by Brooklyn. 
+Manhattan demonstrated widest spread and a right-skewed upper tail, indicating 
+substantial within-borough variation and high-end ZIPs.Other areas also shows a 
+generally right skewed figure.Staten Island demonstrates lowest variation.
 ```{r}
 zip_2023 = 
   nyc |>
@@ -293,101 +317,207 @@ combined
 
 
 # Problem 3
-
-## Set-up data
+## Read-in
 ```{r}
-covar_path <- "data/nhanes_covar.csv"
-accel_path <- "data/nhanes_accel.csv"
-
-covar <- read_csv(covar_path) |> clean_names()
-accel <- read_csv(accel_path) |> clean_names()
+covar_raw = 
+  read_csv("data/nhanes_covar.csv", skip = 4, show_col_types = FALSE) |>
+  clean_names()
+accel_raw = 
+  read_csv("data/nhanes_accel.csv",  show_col_types = FALSE) |> 
+  clean_names()
 ```
 
-## Data preparation
+## Tidy demongraphic data
 ```{r}
-covar <- covar |> mutate(participant_id = row_number())
-accel <- accel |> mutate(participant_id = row_number())
-
-mims_cols <- names(accel) |> keep(~ str_detect(.x, "mims"))
-accel <- accel |> mutate(across(all_of(mims_cols), as.numeric))
-
-covar <- covar |>
+covar = 
+  covar_raw |>
+  clean_names() |>
   mutate(
+    seqn = suppressWarnings(as.numeric(seqn)),
+    age  = suppressWarnings(as.numeric(age)),
+    bmi  = suppressWarnings(as.numeric(bmi)),
     sex = case_when(
-      x1 %in% c(1, "1") ~ "Male",
-      x1 %in% c(2, "2") ~ "Female",
-      TRUE ~ as.character(x1)
+      sex == 1 ~ "Male",
+      sex == 2 ~ "Female",
+      str_to_lower(as.character(sex)) %in% c("m","male") ~ "Male",
+      str_to_lower(as.character(sex)) %in% c("f","female") ~ "Female",
+      TRUE ~ NA_character_
     ),
-    age = as.numeric(x3),
     education = case_when(
-      x4 %in% c(1, "1") ~ "Less than HS",
-      x4 %in% c(2, "2") ~ "Some HS",
-      x4 %in% c(3, "3") ~ "HS or GED",
-      x4 %in% c(4, "4") ~ "Some college/AA",
-      x4 %in% c(5, "5") ~ "College or more",
-      TRUE ~ as.character(x4)
-    ),
+      education == 1 ~ "Less than HS",
+      education == 2 ~ "High school",
+      education == 3 ~ "More than HS",
+      str_detect(str_to_lower(as.character(education)), "less") ~ "Less than HS",
+      str_detect(str_to_lower(as.character(education)), "high") ~ "High school",
+      str_detect(str_to_lower(as.character(education)), "more") ~ "More than HS",
+      TRUE ~ NA_character_
+    )
+  ) |>
+  filter(
+    !is.na(seqn), !is.na(sex), !is.na(age), !is.na(bmi), !is.na(education),
+    age >= 21
+  ) |>
+  mutate(
     sex = factor(sex, levels = c("Male","Female")),
-    education = fct_relevel(
-      factor(education),
-      "Less than HS","Some HS","HS or GED","Some college/AA","College or more"
+    education = factor(education,
+                       levels = c("Less than HS","High school","More than HS"),
+                       ordered = TRUE)
+  ) |>
+  distinct(seqn, .keep_all = TRUE)
+```
+
+## Tidy accelerometer data
+```{r}
+accel_core = 
+  accel_raw |>
+  clean_names() |>
+  mutate(seqn = suppressWarnings(as.numeric(seqn))) |>
+  distinct(seqn, .keep_all = TRUE)
+
+minute_cols = 
+  names(accel_core)[grepl("^min\\d{1,4}$", names(accel_core))]
+
+accel_core = 
+  accel_core |>
+  mutate(
+    across(
+      all_of(minute_cols),
+      ~ suppressWarnings(as.numeric(.x))
+    )
+  ) |>
+  mutate(
+    across(
+      all_of(minute_cols),
+      ~ ifelse(!is.na(.x) & .x < 0, NA_real_, .x)
     )
   )
 
-covar_keep <- covar |> filter(!is.na(age), age >= 21, !is.na(sex), !is.na(education))
-merged <- covar_keep |> inner_join(accel, by = "participant_id")
+accel_long = 
+  accel_core |>
+  pivot_longer(
+    cols = all_of(minute_cols),
+    names_to  = "minute_var",
+    values_to = "mims"
+  ) |>
+  mutate(
+    minute = suppressWarnings(as.integer(stringr::str_remove(minute_var, "^min")))
+  ) |>
+  filter(!is.na(minute), minute >= 1, minute <= 1440) |>
+  mutate(
+    time_of_day = as.POSIXct("2000-01-01 00:00:00", tz = "UTC") + lubridate::dminutes(minute - 1L)
+  ) |>
+  select(seqn, minute, time_of_day, mims)
+
 ```
 
-## Table: number of men and women in each education category
+## Merge
 ```{r}
-counts_tbl <- merged |>
-  count(education, sex, name = "n") |>
+nhanes_long = 
+  covar |>
+  inner_join(accel_long, by = "seqn")
+```
+
+
+## Table on Counts of Men and Women by Education
+The table shows a balanced gender distribution across education levels. 
+Men slightly outnumber women in the High School group (60.3% vs. 39.7%), 
+while other groups are nearly equal.
+```{r}
+sex_by_edu = 
+  covar |>
+  count(education, sex, name = "Count") |>
+  group_by(education) |>
+  mutate(Percent = Count / sum(Count)) |>
+  ungroup() |>
+  mutate(Percent = percent(Percent, accuracy = 0.1)) |>
   arrange(education, sex)
-kable(counts_tbl, caption = "Number of Men and Women by Education")
-```
 
-## Plot on age distributions
-```{r}
-ggplot(merged, aes(x = age, fill = sex)) +
-  geom_histogram(binwidth = 5, alpha = 0.6, position = "identity") +
-  facet_wrap(~ education, ncol = 3, scales = "free_y") +
-  labs(title = "Age distributions by sex within education levels",
-       x = "Age (years)", y = "Count", fill = "Sex")
-```
-
-## total activity vs age
-```{r}
-merged <- merged |> mutate(total_activity = rowSums(across(all_of(mims_cols)), na.rm = TRUE))
-
-ggplot(merged, aes(x = age, y = total_activity, color = sex)) +
-  geom_point(alpha = 0.6) +
-  geom_smooth(se = FALSE, method = "loess") +
-  facet_wrap(~ education, ncol = 3, scales = "free_y") +
-  labs(title = "Total daily activity vs age by education",
-       x = "Age (years)", y = "Total activity (sum of 24h MIMS)",
-       color = "Sex")
+kable(
+  sex_by_edu,
+  caption = "Counts of Men and Women by Education (NHANES accelerometer sample, ≥21y)",
+  align = c("l", "l", "r", "r")
+)
 ```
 
 
 
-## 24-hour activity time course
+## Visualization of age distributions
+The density plots indicate similar age distributions between men and women 
+within each education level. Most participants are between ages 50–70, with the 
+More than High School group showing a slightly younger range. Overall, no major 
+age differences are observed between sexes.
 ```{r}
-tidy_long <- merged |>
-  select(participant_id, sex, age, education, all_of(mims_cols)) |>
-  pivot_longer(all_of(mims_cols), names_to = "minute_var", values_to = "mims") |>
-  mutate(minute = readr::parse_number(minute_var))
-
-minute_curves <- tidy_long |>
-  group_by(education, sex, minute) |>
-  summarize(mean_mims = mean(mims, na.rm = TRUE), .groups = "drop")
-
-ggplot(minute_curves, aes(x = minute, y = mean_mims, color = sex)) +
-  geom_line() +
+p_age_density = 
+  ggplot(covar, aes(x = age, fill = sex, color = sex)) +
+  geom_density(alpha = 0.25) +
   facet_wrap(~ education, nrow = 1, scales = "free_y") +
-  labs(title = "24-hour activity time courses by education",
-       x = "Minute of day (0–1440)", y = "Mean MIMS", color = "Sex")
+  labs(
+    title = "Age distributions by sex within education levels",
+    x = "Age (years)", y = "Density", fill = "Sex", color = "Sex"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "top")
+
+p_age_density
 ```
 
+## Total Daily activities vs. Age
+Across all education levels, total daily activity tends to decline with age. 
+Men and women show similar overall patterns, though women appear slightly more 
+active in the High School and More than High School groups. The wide spread of 
+points indicates large individual variation beyond age and sex differences.
+```{r}
+totals = 
+  nhanes_long %>%
+  group_by(seqn) %>%
+  summarize(total_activity = sum(mims, na.rm = TRUE), .groups = "drop") %>%
+  inner_join(covar, by = "seqn")  
 
+p_total_vs_age = 
+  ggplot(totals, aes(x = age, y = total_activity, color = sex)) +
+  geom_point(alpha = 0.6, size = 1.6) +
+  geom_smooth(se = FALSE, method = "loess", span = 0.9) +
+  facet_wrap(~ education, nrow = 1, scales = "free_y") +
+  scale_y_continuous(labels = label_number(big.mark = ",")) +
+  labs(
+    title = "Total daily activity vs. age",
+    subtitle = "Colored by sex; faceted by education level",
+    x = "Age (years)",
+    y = "Total daily activity (sum of minute-level MIMS)",
+    color = "Sex"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "top")
 
+p_total_vs_age
+```
+## 24 hour activity time courses by education
+```{r}
+diurnal_mean = 
+  nhanes_long %>%
+  group_by(education, sex, minute) %>%
+  summarize(mean_mims = mean(mims, na.rm = TRUE), .groups = "drop") %>%
+  mutate(time_of_day = as.POSIXct("2000-01-01 00:00:00", tz = "UTC") + dminutes(minute - 1L))
+
+p_diurnal = 
+  ggplot(diurnal_mean, aes(x = time_of_day, y = mean_mims, color = sex)) +
+  geom_line(alpha = 0.7, linewidth = 0.6) +
+  geom_smooth(se = FALSE, method = "loess", span = 0.1, linewidth = 0.9) +
+  facet_wrap(~ education, nrow = 1, scales = "free_y") +
+  scale_x_datetime(
+    labels = date_format("%H:%M"),
+    breaks = date_breaks("4 hours"),
+    minor_breaks = date_breaks("1 hour")
+  ) +
+  labs(
+    title = "24-hour activity time courses by education",
+    subtitle = "Mean minute-level MIMS; color indicates sex",
+    x = "Time of day", y = "Mean MIMS", color = "Sex"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "top")
+
+p_diurnal
+```
+Across all education groups, activity levels rise sharply in the morning, stay high throughout daytime, and drop at night. This consistent 24-hour rhythm reflects typical waking and sleeping patterns. Women show slightly higher mean activity during daytime—especially in the High school and More than HS groups—while men display a steeper evening decline in the Less than HS group. Overall, diurnal patterns are similar across sexes and education levels.
 
