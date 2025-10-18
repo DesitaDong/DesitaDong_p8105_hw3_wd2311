@@ -12,6 +12,7 @@ library(p8105.datasets)
 library(knitr)
 library(forcats)
 library(patchwork)
+library(scales)
 ```
 
 
@@ -30,9 +31,9 @@ aisle and department (product category classification).
 ```{r}
 data("instacart") 
 glimpse(instacart)
-n_obs  <- nrow(instacart)
-n_vars <- ncol(instacart)
-n_aisles <- instacart |> 
+n_obs  = nrow(instacart)
+n_vars = ncol(instacart)
+n_aisles = instacart |> 
   distinct(aisle_id, aisle) |> 
   nrow()
 
@@ -41,17 +42,21 @@ c(n_obs, n_vars, n_aisles)
 
 ## Description on aisles
 There are 134 aisles. The aisles with the greatest number of items ordered are 
-“fresh vegetables” (150,609 orders) and “fresh fruits” (150,473 orders).
+“fresh vegetables” (150609 orders) and “fresh fruits” (150473 orders).
 ```{r}
-aisle_counts <- instacart |>
+aisle_counts = 
+  instacart |>
   count(aisle, sort = TRUE)
 
-n_aisles <- nrow(aisle_counts)
+n_aisles = nrow(aisle_counts)
 n_aisles
 
 # top aisles
-aisle_counts |> slice_head(n = 10) |> kable()
+aisle_counts |> 
+  slice_head(n = 10) |> 
+  kable()
 ```
+
 ## Plot on aisles with more than 10000 items
 ```{r}
 aisle_counts |>
@@ -69,7 +74,8 @@ aisle_counts |>
 
 ## Table for top3 items by aisle
 ```{r}
-top3_by_aisle <- instacart |>
+top3_by_aisle = 
+  instacart |>
   filter(aisle %in% c("baking ingredients", "dog food care", "packaged vegetables fruits")) |>
   count(aisle, product_name, sort = TRUE) |>
   group_by(aisle) |>
@@ -82,9 +88,10 @@ kable(top3_by_aisle, col.names = c("Aisle", "Product", "Times ordered"))
 
 ## Table for mean hours of the day
 ```{r}
-dow_labs <- c("Sun","Mon","Tue","Wed","Thu","Fri","Sat")
+dow_labs = c("Sun","Mon","Tue","Wed","Thu","Fri","Sat")
 
-mean_hour_tbl <- instacart |>
+mean_hour_tbl = 
+  instacart |>
   filter(product_name %in% c("Pink Lady Apples", "Coffee Ice Cream")) |>
   mutate(dow = factor(order_dow, levels = 0:6, labels = dow_labs)) |>
   group_by(product_name, dow) |>
@@ -101,10 +108,12 @@ kable(mean_hour_tbl, col.names = c("Product","Sun","Mon","Tue","Wed","Thu","Fri"
 # Problem 2
 ## Data Set-up
 ```{r}
-zip_meta <- read_csv("data/Zip Codes.csv") |> 
+zip_meta = 
+  read_csv("data/Zip Codes.csv") |> 
   clean_names() 
 
-zori_raw <- read_csv("data/Zip_zori_uc_sfrcondomfr_sm_month_NYC.csv", show_col_types = FALSE) |> 
+zori_raw = 
+  read_csv("data/Zip_zori_uc_sfrcondomfr_sm_month_NYC.csv", show_col_types = FALSE) |> 
   clean_names() 
 
 # Check column names
@@ -114,7 +123,8 @@ names(zori_raw)
 
 ## Data preparation 
 ```{r}
-zip_meta <- zip_meta |>
+zip_meta = 
+  zip_meta |>
   mutate(
     zip = str_pad(as.character(zip_code), 5, pad = "0"),
     county = str_to_title(county) |> str_trim()
@@ -128,7 +138,8 @@ county_to_borough <- c(
   "Richmond"       = "Staten Island"
 )
 
-zip_meta <- zip_meta |>
+zip_meta = 
+  zip_meta |>
   mutate(borough = recode(county, !!!county_to_borough)) |>
   filter(!is.na(borough)) |>
   select(zip, borough, county, neighborhood)
@@ -136,7 +147,8 @@ zip_meta <- zip_meta |>
 
 ## Turning to long form
 ```{r}
-zori_long <- zori_raw |>
+zori_long = 
+  zori_raw |>
   mutate(
     zip = str_pad(as.character(region_name), 5, pad = "0")
   ) |>
@@ -152,21 +164,28 @@ zori_long <- zori_raw |>
   ) |>
   filter(!is.na(date))
 
-nyc <- zori_long |>
+nyc = 
+  zori_long |>
   left_join(zip_meta |> select(zip, borough), by = "zip") |>
   filter(!is.na(borough))
 ```
 
 ## Monthly Observation
 ```{r}
-nyc_target <- nyc |>
+nyc_target = 
+  nyc |>
   filter(date >= ymd("2015-01-01"), date <= ymd("2024-08-31"))
 
-months_per_zip <- nyc_target |>
+months_per_zip = 
+  nyc_target |>
   count(zip, name = "n_months")
 
-n_116  <- months_per_zip |> filter(n_months == 116) |> nrow()
-n_lt10 <- months_per_zip |> filter(n_months < 10)   |> nrow()
+n_116  = months_per_zip |> 
+  filter(n_months == 116) |> 
+  nrow()
+n_lt10 = months_per_zip |> 
+  filter(n_months < 10)   |> 
+  nrow()
 
 cat("ZIP codes observed exactly 116 times:", n_116, "\n")
 cat("ZIP codes observed fewer than 10 times:", n_lt10, "\n")
@@ -177,82 +196,98 @@ cat("ZIP codes observed fewer than 10 times:", n_lt10, "\n")
 ```{r}
 dir.create("results", showWarnings = FALSE)
 
-borough_year_tbl <- nyc_target |>
-  dplyr::group_by(borough, year) |>
-  dplyr::summarize(avg_rent = mean(zori, na.rm = TRUE), .groups = "drop") |>
-  dplyr::arrange(borough, year)
+borough_year_tbl = 
+  nyc_target |>
+  group_by(borough, year) |>
+  summarize(avg_rent = mean(zori, na.rm = TRUE), .groups = "drop") |>
+  arrange(borough, year)
 
-borough_year_wide <- borough_year_tbl |>
-  tidyr::pivot_wider(names_from = year, values_from = avg_rent) |>
-  dplyr::mutate(dplyr::across(-borough, ~ round(.x, 0))) # 四舍五入到整数美元
+borough_year_wide = 
+  borough_year_tbl |>
+  pivot_wider(names_from = year, values_from = avg_rent) |>
+  mutate(across(-borough, ~ round(.x, 0))) 
 
-knitr::kable(
+kable(
   borough_year_wide |>
-    dplyr::mutate(dplyr::across(-borough, ~ scales::dollar(.x))),
+    mutate(across(-borough, ~ dollar(.x))),
   caption = "Average Rental Price by Borough and Year (ZORI)"
 )
+
 
 ```
 
 
 ## Plot for all available years
 ```{r}
-all_years_plot <- nyc_target |>
-  dplyr::group_by(borough, date) |>
-  dplyr::mutate(borough_median = median(zori, na.rm = TRUE)) |>
-  dplyr::ungroup() |>
-  ggplot2::ggplot(ggplot2::aes(x = date, y = zori, group = zip)) +
-  ggplot2::geom_line(alpha = 0.08) +
-  ggplot2::stat_summary(
-    ggplot2::aes(group = borough),
+nyc_clean = 
+  nyc_target |>
+  filter(!is.na(zori), is.finite(zori))  
+
+all_years_plot = 
+  nyc_clean |>
+  group_by(borough, date) |>
+  mutate(borough_median = median(zori, na.rm = TRUE)) |>
+  ungroup() |>
+  ggplot(aes(x = date, y = zori, group = zip)) +
+  geom_line(alpha = 0.08) +
+  stat_summary(
+    aes(group = borough),
     fun = median, geom = "line", linewidth = 1.1
   ) +
-  ggplot2::facet_wrap(~ borough, ncol = 2, scales = "free_y") +
-  ggplot2::scale_y_continuous(labels = scales::dollar) +
-  ggplot2::labs(
+  facet_wrap(~ borough, ncol = 2, scales = "free_y") +
+  scale_y_continuous(labels = dollar) +
+  labs(
     title = "NYC Rental Prices within ZIP Codes (All Years)",
     subtitle = "Thin lines: ZIP series · Thick line: Borough median ZORI",
     x = NULL, y = "ZORI ($)"
   ) +
-  ggplot2::theme_minimal(base_size = 12) +
-  ggplot2::theme(panel.grid.major.x = ggplot2::element_blank())
+  theme_minimal(base_size = 12) +
+  theme(panel.grid.major.x = element_blank())
 
-ggplot2::ggsave("results/plot_all_years_by_borough.png", all_years_plot,
-                width = 11, height = 7, dpi = 300)
+ggsave("results/plot_all_years_by_borough.png", all_years_plot,
+       width = 11, height = 7, dpi = 300)
+
 all_years_plot
 ```
 
 ## Average rental price in 2023
 ```{r}
-zip_2023 <- nyc |>
-  dplyr::filter(lubridate::year(date) == 2023) |>
-  dplyr::group_by(zip, borough) |>
-  dplyr::summarize(avg_2023 = mean(zori, na.rm = TRUE), .groups = "drop")
+zip_2023 = 
+  nyc |>
+  filter(year(date) == 2023) |>
+  group_by(zip, borough) |>
+  summarize(avg_2023 = mean(zori, na.rm = TRUE), .groups = "drop") |>
+  mutate(avg_2023 = ifelse(is.nan(avg_2023), NA_real_, avg_2023)) |>
+  drop_na(borough, avg_2023)
 
-dist_2023_plot <- ggplot2::ggplot(zip_2023, ggplot2::aes(x = borough, y = avg_2023)) +
-  ggplot2::geom_violin(trim = TRUE, alpha = 0.5) +
-  ggplot2::geom_boxplot(width = 0.15, outlier.alpha = 0.3) +
-  ggplot2::stat_summary(fun = median, geom = "point", size = 2) +
-  ggplot2::scale_y_continuous(labels = scales::dollar) +
-  ggplot2::labs(
+dist_2023_plot <- ggplot(zip_2023, aes(x = borough, y = avg_2023)) +
+  geom_violin(trim = TRUE, alpha = 0.5) +
+  geom_boxplot(width = 0.15, outlier.alpha = 0.3) +
+  stat_summary(fun = median, geom = "point", size = 2) +
+  scale_y_continuous(labels = dollar) +
+  labs(
     title = "Distribution of ZIP-level Average Rental Prices (2023)",
     subtitle = "Violin = distribution · Box = IQR · Dot = median",
     x = "Borough", y = "Average ZORI in 2023 ($)"
   ) +
-  ggplot2::theme_minimal(base_size = 12)
+  theme_minimal(base_size = 12)
 
-ggplot2::ggsave("results/plot_2023_distribution.png", dist_2023_plot,
-                width = 9, height = 6, dpi = 300)
+ggsave("results/plot_2023_distribution.png", dist_2023_plot,
+       width = 9, height = 6, dpi = 300)
+
 dist_2023_plot
+
 ```
 ## Combine graph
 ```{r}
-combined <- all_years_plot / dist_2023_plot +
+combined = 
+  all_years_plot | dist_2023_plot +
   patchwork::plot_annotation(
     title = "NYC Rental Prices: Long-run Trends and 2023 Distributions"
   )
 
-ggplot2::ggsave("results/combined_plots.png", combined, width = 11, height = 12, dpi = 300)
+ggplot2::ggsave("results/combined_plots.png", combined,
+                width = 17, height = 12, dpi = 300)
 combined
 ```
 
